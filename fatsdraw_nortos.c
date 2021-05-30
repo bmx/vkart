@@ -59,6 +59,7 @@
 #include <ti/display/Display.h>
 #include <ti/drivers/GPIO.h>
 #include <ti/drivers/SDFatFS.h>
+
 //#include <ti/drivers/UART.h>
 
 /* Driver configuration */
@@ -98,6 +99,8 @@ unsigned char cpy_buff[CPY_BUFF_SIZE + 1];
 FIL src;
 FIL dst;
 
+bool debug = 0;
+
 /*
  *  ======== printDrive ========
  *  Function to print drive information such as the total disk space
@@ -116,7 +119,9 @@ static void uart_init(void) {
     PA->SEL0_L |= 0x0c;
 
     EUSCI_A0->CTLW0 = 0x0081;
-    EUSCI_A0->BRW = 104; // 3000000/115200 = 26  12000000/115200 = 104
+    //EUSCI_A0->BRW = 26; // 3000000/115200 = 26
+    //EUSCI_A0->BRW = 104; // 12000000/115200 = 104
+    EUSCI_A0->BRW = 208; // 24000000/115200 = 208
     EUSCI_A0->MCTLW = 0x0000;
     EUSCI_A0->IE = 0;
     EUSCI_A0->CTLW0 = 0x0081;
@@ -137,6 +142,7 @@ static void uart_send(uint16_t x) {
     EUSCI_A0->TXBUF = x;
 }
 
+
 void print(char *str) {
     uint32_t i = 0;
     while (str[i] != 0) {
@@ -144,6 +150,13 @@ void print(char *str) {
     }
 }
 
+void bitout(uint32_t b, uint8_t len) {
+    for(int i = len-1; i>=0; i--) if (b & 1 << i) print("1"); else print("0");
+}
+
+#define bit8(x)      bitout(x, 8)
+#define bit16(x)     bitout(x, 16)
+#define bit32(x)     bitout(x, 32)
 
 void hexout(uint32_t d, uint8_t len, bool cr) {
     uint32_t rb, rc;
@@ -175,6 +188,66 @@ void hex8s(uint32_t x) { hexout(x, 8, false); }
 void hex16s(uint32_t x) { hexout(x, 16, false); }
 void hex32s(uint32_t x) { hexout(x, 32, false); }*/
 
+uint32_t read_hex(uint8_t len) {
+    char x;
+    uint8_t n = 0;
+    uint32_t r = 0;
+
+    while (n < len) {
+        x = uart_recv();
+        if ((x >= '0' && x <= '9') || ( x >= 'A' && x <='F') || (x >= 'a' && x <= 'f') ) {
+            n++;
+            uart_send(x);
+            r <<= 4;
+            if (x < 0x40) { //0-9
+               r |= (x-48);
+            } else if (x < 0x50) { //A-F
+                r |= (x-55);
+            } else { //a-f
+                r |= (x-87);
+            }
+        }
+        //if (x == 0x7a && n>0) {
+        //    n--;
+        //}
+
+        if (x == 0xd || x == 0x3) break;
+    }
+    return r;
+}
+void port_status() {
+    print("PORT  ");
+    print("4 ("); hex16s(0); print(")");
+    print("7 ("); hex16s(0); print(")");
+    print("9 ("); hex16s(0); print(")");
+    print("6 ("); hex16s(0); print(")");
+    print("5 ("); hex16s(0); print(")");
+    print("10("); hex16s(0); print(")\r\n");
+    print("      [        ADDRESS         ] [     DATA      ]      E W\r\n");
+
+    print("INPUT ");
+    bit8(P4->IN); print("."); bit8(P7->IN); print("."); bit8(P9->IN); print(" ");
+    bit8(P6->IN); print("."); bit8(P4->IN); print(" "); bit8(P10->IN);
+    print(" @"); hex32s((P4->IN)<<16 | (P7->IN)<<8 | (P9->IN));
+    print(" "); hex16s((P6->IN)<<8 | (P5->IN));
+    print(" "); hex8s(P10->IN); print("\r\n");
+
+    print("->OUT ");
+    bit8(P4->OUT); print("."); bit8(P7->OUT); print("."); bit8(P9->OUT); print(" ");
+    bit8(P6->OUT); print("."); bit8(P5->OUT); print(" "); bit8(P10->OUT);
+    print(" @"); hex32s((P4->OUT)<<16 | (P7->OUT)<<8 | (P9->OUT));
+    print(" "); hex16s((P6->OUT)<<8 | (P5->OUT));
+    print(" "); hex8s(P10->OUT); print("\r\n");
+
+    print("->DIR ");
+    bit8(P4->DIR); print("."); bit8(P7->DIR); print("."); bit8(P9->DIR); print(" ");
+    bit8(P6->DIR); print("."); bit8(P5->DIR); print(" "); bit8(P10->DIR);
+    print(" @"); hex32s((P4->DIR)<<16 | (P7->DIR)<<8 | (P9->DIR));
+    print(" "); hex16s((P6->DIR)<<8 | (P5->DIR));
+    print(" "); hex8s(P10->DIR); print("\r\n");
+
+}
+
 #define PIN_CE 0x4
 #define PIN_RW 0x1
 
@@ -196,17 +269,24 @@ void set_data_dir(bool state) {
 }
 
 void set_address(uint8_t hi, uint8_t mid, uint8_t lo) {
+    //if(debug) { print("DBG: set_address("); hex8s(hi); hex8s(mid); hex8s(lo); print(")\r\n"); }
     P4->OUT= hi;
     P7->OUT= mid;
     P9->OUT= lo;
 }
 
 void set_data(uint8_t hi, uint8_t lo) {
+    //if(debug) { print("DBG: set_data("); hex8s(hi); hex8s(lo); print(")\r\n"); }
     P5->OUT = lo;
     P6->OUT = hi;
 }
 
 uint16_t get_data(void) {
+    //return P6->IN << 8 | P5->IN;
+    //if (debug) {
+    //    print("DBG: get_data() returns "); hex16(res);
+    //}
+    //return res;
     return PC->IN;
 }
 
@@ -222,13 +302,19 @@ void write_word(uint8_t hi, uint8_t mid, uint8_t lo, uint8_t data_hi, uint8_t da
 
 uint16_t read_word(uint8_t hi, uint8_t mid, uint8_t lo) {
     uint16_t retval;
+    //if (debug) {
+    //    print("DBG: read_word("); hex8s(hi); hex8s(mid); hex8s(lo); print(")\r\n");
+    //}
     set_data_dir(false);
     set_ce(true);
     set_rw(true);
     set_address(hi, mid, lo);
     set_ce(false);
     retval = get_data();
-    set_ce(true);
+    //set_ce(true);
+    //if (debug) {
+    //    print("DBG: read_word() returns "); hex16(retval);
+    //}
     return retval;
 }
 
@@ -247,7 +333,7 @@ void init_pins(void) {
     P9->SEL0 = 0x0;
     P10->DIR |= 0x5;
     set_data_dir(false);
-    P5->DIR |=0xff;
+    P4->DIR |=0xff;
     P7->DIR |=0xff;
     P9->DIR |=0xff;
 }
@@ -256,11 +342,34 @@ static void do_reset() {
     write_word(0x0, 0x0, 0x0, 0x0, 0xf0);
 }
 
+char ascii(char s) {
+  if(s < 0x20) return '.';
+  if(s > 0x7E) return '.';
+  return s;
+}
+void hexdump(void *d, uint32_t len) {
+  unsigned char *data;
+  int i, off;
+  data = (unsigned char*)d;
+  for (off=0; off<len; off += 16) {
+    hex32s(off);
+    for(i=0; i<16; i++)
+      if((i+off)>=len) print("   ");
+      else hex8s(data[off+i]);
+
+    print(" ");
+    for(i=0; i<16; i++)
+      if((i+off)>=len) print(" ");
+      else uart_send(ascii(data[off+i]));
+    print("\r\n");
+  }
+}
+
 static void dump() {
     uint16_t block, page, i;
     unsigned int bytesWritten = 0;
-    uint16_t data[512];
-    char file[] = "DUMP2.BIN";
+    uint16_t data[64*256];
+    char file[] = "DUMP.BIN";
     SDFatFS_Handle sdfatfsHandle;
     FIL fil;
 
@@ -270,21 +379,31 @@ static void dump() {
         return;
     } else {
         print("mounted\r\n");
+        FILINFO fno;
+        if (FR_OK == f_stat(file, &fno)) {
+            if (FR_OK == f_unlink(file)) {
+                print("file deleted\r\n");
+            } else {
+                print("failed to delete file\r\n");
+                return;
+            }
+        } else {
+            print("no file, will be created\r\n");
+        }
         if (!f_open(&fil, file, FA_CREATE_NEW|FA_WRITE)) {
 
             init_pins();
             do_reset();
-            for(block = 0; block < 64; block++) {
-                print("Dump block "); hex8(block);
-                for(page = 0; page < 256; page++) {
-                    for(i = 0; i < 256; i++) {
-                        data[i] = read_word(block, page, i);
+            for(block = 0; block < 0x40; block++) {
+                print("\rDump block "); hex8s(block);
+                for (short quarter = 0; quarter < 4; quarter++) { // 16KW per quarter
+                    for(page = 0; page < 0x40; page++) {
+                        for(i = 0; i<0xff;i++) data[(page<<8)|i] = read_word(block, (quarter<<6)|page, i);
                     }
-                    f_write(&fil, data, 512, &bytesWritten);
-                    if (bytesWritten != 512) {
-                        print("write error, only "); hex16(bytesWritten); print(" written\r\n");
-                    }
-
+                    //f_write(&fil, data, 1<<15, &bytesWritten);
+                    //if (bytesWritten != 1<<15) {
+                    //    print("write error, only "); hex16s(bytesWritten); print(" written\r\n");
+                    //}
                 }
             }
             f_sync(&fil);
@@ -311,12 +430,63 @@ static void read_cfi() {
     write_cfi("CFI.BIN", (void *)data, 0x8*0x10);
 }
 
+void sneek_a(void) {
+    uint32_t a;
+
+    while (1) {
+        print("Entre XXXXXX address: ");
+        a = read_hex(6); print("\r\n");
+        hex16(read_word((a >> 16)&0xff, (a>>8)&0xff, a&0xff));
+
+    }
+}
+
+void read_a_spot(void) {
+    uint32_t a;
+    uint16_t w;
+    while (1) {
+        print("Entre XXXXXX address: ");
+        a = read_hex(6); print("\r\n");
+        w = read_word((a >> 16)&0xff, (a>>8)&0xff, a&0xff);
+        port_status();
+        print("AT "); hex32s(a); print(" -> "); hex16(w);
+    }
+}
+
+static void check_content(char *name, uint32_t addr, uint32_t len) {
+    FIL fp;
+    uint8_t *data;
+    uint32_t dataread;
+    SDFatFS_Handle sdfatfsHandle;
+
+    if (len == 0) {
+        print("Enter addr: "); addr = read_hex(6);
+        print("Enter len: "); len = read_hex(2);
+        print("\r\n");
+    }
+    data = malloc(len);
+
+    sdfatfsHandle = SDFatFS_open(CONFIG_SDFatFS_0, DRIVE_NUM);
+
+    if (!f_open(&fp,name, FA_READ)) {
+        if (!f_lseek(&fp, addr)) {
+            if (!f_read(&fp, data, len, &dataread)) {
+                hexdump(data, len);
+            }
+        }
+        f_close(&fp);
+    }
+    free(data);
+    SDFatFS_close(sdfatfsHandle);
+}
+
 static void menu() {
     print("Dumper Menu\r\n");
     print("<c> CFI\r\n");
     print("<d> Dump\r\n");
     print("<b> Burn\r\n");
     print("<B> blink\r\n");
+    print(debug?"DBG":"");
 }
 
 void printDrive(const char *driveNumber, FATFS **fatfs)
@@ -366,13 +536,20 @@ void printDrive(const char *driveNumber, FATFS **fatfs)
 void *mainThread(void *arg0)
 {
 
-
-
+    if (0) { //???
+    // select 48MHz external oscillator on PJ.2/PJ.3
+    PJ->SEL0 |= 0x0C;
+    PJ->SEL1 &= ~0x0C;
+    CS->KEY = 0x695A;
+    CS->CTL0 = CS_CTL0_DCORSEL_5;
+    CS->CTL1 = CS_CTL1_SELA__REFOCLK | CS_CTL1_SELS__DCOCLK | CS_CTL1_SELM__DCOCLK;
+    CS->KEY = 0;
+    }
 
     GPIO_init();
     SDFatFS_init();
     uart_init();
-
+    init_pins();
 
     //char status;
     char cmd=0;
@@ -384,25 +561,51 @@ void *mainThread(void *arg0)
         case 'c':
             read_cfi();
             break;
+        case 'a':
+            sneek_a();
+            break;
         case 'd':
             dump();
             break;
+        case 'D':
+            debug ^= 1;
+            print(debug?"debug on\r\n":"debug off\r\n");
+            break;
+        case 'p':
+            port_status();
+            break;
+        case 'i':
+            hex32(read_hex(4));
+            break;
         case 't':
             print("TEST\r\n");
+
+
+            hex32(get_fattime());
             P2->DIR |= 2;
             P2->OUT |= 2;
             sleep(1);
             P2->OUT &= ~2;
             sleep(1);
-            break;
-        case 'l':
+            hex32(get_fattime()); // 4A210000
+                                  //
+            break;                // 0100 1010 0010 0001 0000 0000 0000 0000
+        case 'l':                 // |||| |||\ ||/  \||| /
+                                  // 0100101  0001  0001
+                                  //   2017   Jan     1
             do_sd2();
             break;
+        case 'x':
+            check_content("DUMP.BIN", 0x0, 0);
+            break;
         case 'w':
-            print("WEST\r\n");
+            read_a_spot();
             break;
         case 'q':
             print("QUEST\r\n");
+            break;
+        case '?':
+            menu();
             break;
         }
         cmd = 0;
@@ -443,25 +646,18 @@ FRESULT scan_files(char *path) {
 
 void do_sd2(void) {
 
-    FATFS *fs;
-    //DIR   DI;
-    //FILINFO FI;
-    char buff[256];
-    FRESULT r;
-    fs = malloc(sizeof (FATFS));
-    r = f_mount(fs, "", 0);
-    if (r != FR_OK) {
 
-        print("Error mounting SD Card\r\n");
-        hex32(r);
-        //while (1);
+    SDFatFS_Handle sdfatfsHandle;
+    sdfatfsHandle = SDFatFS_open(CONFIG_SDFatFS_0, DRIVE_NUM);
+    if (sdfatfsHandle == NULL) {
+        print("Error starting the SD card\n");
+        return;
     } else {
-        print("mount OK\r\n");
-        strcpy(buff, "0:/");
-        r = scan_files(buff);
-        print("umount\r\n");
+        print("mounted\r\n");
     }
-    f_mount(0,"",0);
+    printDrive(STR(DRIVE_NUM), &(dst.obj.fs));
+    scan_files("0:/");
+    SDFatFS_close(sdfatfsHandle);
 }
 
 void write_cfi(char *filename, void *data, uint32_t len) {
