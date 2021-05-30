@@ -400,10 +400,10 @@ static void dump() {
                     for(page = 0; page < 0x40; page++) {
                         for(i = 0; i<0xff;i++) data[(page<<8)|i] = read_word(block, (quarter<<6)|page, i);
                     }
-                    //f_write(&fil, data, 1<<15, &bytesWritten);
-                    //if (bytesWritten != 1<<15) {
-                    //    print("write error, only "); hex16s(bytesWritten); print(" written\r\n");
-                    //}
+                    f_write(&fil, data, 1<<15, &bytesWritten);
+                    if (bytesWritten != 1<<15) {
+                        print("write error, only "); hex16s(bytesWritten); print(" written\r\n");
+                    }
                 }
             }
             f_sync(&fil);
