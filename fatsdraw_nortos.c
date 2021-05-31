@@ -78,21 +78,15 @@
 /* Drive number used for FatFs */
 #define DRIVE_NUM           0
 
+char file[] = "DUMPFILE.BIN";
+char burnfile[] = "BURNFILE.BIN";
 const char inputfile[] = STR(DRIVE_NUM)":input.txt";
 const char outputfile[] = STR(DRIVE_NUM)":output.txt";
 
-const char textarray[] = \
-"***********************************************************************\n"
-"0         1         2         3         4         5         6         7\n"
-"01234567890123456789012345678901234567890123456789012345678901234567890\n"
-"This is some text to be inserted into the inputfile if there isn't\n"
-"already an existing file located on the media.\n"
-"If an inputfile already exists, or if the file was already once\n"
-"generated, then the inputfile will NOT be modified.\n"
-"***********************************************************************\n";
+#define RED_LED 1
+#define GREEN_LED 2
+#define BLUE_LED 4
 
-//static Display_Handle display;
-//static UART_Handle uart;
 
 unsigned char cpy_buff[CPY_BUFF_SIZE + 1];
 
@@ -143,6 +137,29 @@ static void uart_send(uint16_t x) {
 }
 
 
+
+static void led_on(uint8_t led){
+    P2->OUT |= led;
+}
+
+static void led_off(uint8_t led){
+    P2->OUT &= ~led;
+}
+static void led_toggle(uint8_t led){
+    P2->OUT ^= led;
+}
+static void init_leds() {
+    P2->SEL1 &= ~RED_LED;
+    P2->SEL0 &= ~RED_LED;
+    P2->DIR |= RED_LED;
+    P2->SEL1 &= ~GREEN_LED;
+    P2->SEL0 &= ~GREEN_LED;
+    P2->DIR |= GREEN_LED;
+    P2->SEL1 &= ~BLUE_LED;
+    P2->SEL0 &= ~BLUE_LED;
+    P2->DIR |= BLUE_LED;
+    led_off(RED_LED|GREEN_LED|BLUE_LED);
+}
 void print(char *str) {
     uint32_t i = 0;
     while (str[i] != 0) {
@@ -195,6 +212,7 @@ uint32_t read_hex(uint8_t len) {
 
     while (n < len) {
         x = uart_recv();
+        if (x == 0x1b) { return 0xffffffff; }
         if ((x >= '0' && x <= '9') || ( x >= 'A' && x <='F') || (x >= 'a' && x <= 'f') ) {
             n++;
             uart_send(x);
@@ -215,6 +233,28 @@ uint32_t read_hex(uint8_t len) {
     }
     return r;
 }
+
+char *entry83(char *label) {
+    //  0  1  2  3  4  5  6  7  8  9 10 11
+    // [ ][ ][ ][ ][ ][ ][ ][ ][ ][ ][ ][ ]     m=0, n=0
+    //  a                                       n=1
+
+    char x,*file = malloc(12);
+    int n =0;
+    if (label) print(label);
+    while (n < 12) {
+        x = uart_recv();
+        uart_send(x);
+        if (x == 0xd || x == 0x9) break;
+        if (n==7) file[++n]='.';
+        file[n]=x;
+        n++;
+    }
+    file[n]='\0';
+    print("\r\n");
+    return(file);
+}
+
 void port_status() {
     print("PORT  ");
     print("4 ("); hex16s(0); print(")");
@@ -275,10 +315,11 @@ void set_address(uint8_t hi, uint8_t mid, uint8_t lo) {
     P9->OUT= lo;
 }
 
-void set_data(uint8_t hi, uint8_t lo) {
+void set_data(uint16_t data) {
     //if(debug) { print("DBG: set_data("); hex8s(hi); hex8s(lo); print(")\r\n"); }
-    P5->OUT = lo;
-    P6->OUT = hi;
+    //P5->OUT = lo;
+    //P6->OUT = hi;
+    PC->OUT = data;
 }
 
 uint16_t get_data(void) {
@@ -290,13 +331,13 @@ uint16_t get_data(void) {
     return PC->IN;
 }
 
-void write_word(uint8_t hi, uint8_t mid, uint8_t lo, uint8_t data_hi, uint8_t data_lo) {
+void write_word(uint8_t hi, uint8_t mid, uint8_t lo, uint16_t word) {
     set_ce(true);
     set_rw(false);
     set_data_dir(true);
     set_address(hi, mid, lo);
     set_ce(false);
-    set_data(data_hi, data_lo);
+    set_data(word);
     set_ce(true);
 }
 
@@ -316,6 +357,91 @@ uint16_t read_word(uint8_t hi, uint8_t mid, uint8_t lo) {
     //    print("DBG: read_word() returns "); hex16(retval);
     //}
     return retval;
+}
+// NOTE:
+// Read device code
+// 21..........9876543210
+//             Xxx0xx1111 manufacturer
+//             Xxx0xx0001 device code
+//             Xxx0xx0011 extended memory verify code
+// aaaaaaaaaaxxXxx0xx0010 block protect status of addr block
+
+uint32_t check_status(void) {
+    uint32_t i;
+    uint8_t byte1,byte2;
+    for(i = 0; i < 0xffffff; i++) {
+
+        byte1 = read_word(0,0,0) & 0xff;
+        byte2 = read_word(0,0,0) & 0xff;
+        if (byte1 == byte2) break; // since the toggle bit (bit6, or 2 in some other cases) in the status reg is toggling
+                                   // at every read, it stops toggling when finished, so two
+                                   // consequent fetch which are the same means the chip is now in read mode
+        // note: should be better to check bit6 only, not the whole byte
+
+    }
+    return i; //number of cycles reported for the cmd execution
+}
+
+void erase_chip_29w() {
+    write_word(0x00, 0x05, 0x55, 0x00aa);
+    write_word(0x00, 0x02, 0xaa, 0x0055);
+    write_word(0x00, 0x05, 0x55, 0x0080);
+    write_word(0x00, 0x05, 0x55, 0x00aa);
+    write_word(0x00, 0x02, 0xaa, 0x0055);
+    write_word(0x00, 0x05, 0x55, 0x0010);
+    sleep(80); // typical 80s
+    print("chip erased in "); hex32(check_status());
+}
+
+void erase_block_29w(uint32_t address) {
+    write_word(0x00, 0x05, 0x55,0xaa);
+    write_word(0x00, 0x02, 0xaa,0x55);
+    write_word(0x00, 0x05, 0x55,0x80);
+    write_word(0x00, 0x05, 0x55,0xaa);
+    write_word(0x00, 0x02, 0xaa,0x55);
+    write_word((address>>16)&0xff,(address>>8)&0xff, address&0xff,0x30);
+    usleep(100000); // typical time to erase block: 0.8s
+    print("block @"); hex32s(address); print("erased in "); hex32(check_status());
+}
+
+void write_word_29w(uint8_t hi, uint8_t mid, uint8_t lo, uint16_t d1, uint16_t d2) {
+
+    write_word(0x00,0x05,0x55,0x0050);
+    write_word(hi,mid,lo, d1);
+    write_word(hi,mid,lo+1, d2);
+    usleep(10); // typical 10us
+    //check_status();
+}
+
+void write_dword_29w2(uint32_t address, uint16_t *words, uint32_t len) {
+
+    uint32_t addr;
+    for(uint32_t i = 0; i < len; i+=2) {
+        addr = address+i;
+
+        write_word_29w((addr >> 16) & 0xff, (addr >> 8) & 0xff, addr & 0xff,
+                       words[i], words[i+1]);
+    }
+}
+void program(uint32_t address, void *data, uint32_t len) {
+    if (len != 512) {
+        print("Expected 0x200 bytes of data, got "); hex32(len);
+        return;
+    }
+    print("Write "); hex32(address);
+    for(uint16_t offset = 0; offset < 0x100; offset+=0x40) {
+
+    }
+}
+void program_block(uint32_t address, void *data, uint32_t len) {
+    if (len != 0x10000) {
+        print("Expected 0x10000 bytes of data, got "); hex32(len);
+        return;
+    }
+    erase_block_29w(address);
+    for(uint32_t addr = 0; addr < 0x8000; addr+= 0xff) {
+        program(addr+address, (uint8_t *)data+addr, 512);
+    }
 }
 
 void init_pins(void) {
@@ -339,7 +465,7 @@ void init_pins(void) {
 }
 
 static void do_reset() {
-    write_word(0x0, 0x0, 0x0, 0x0, 0xf0);
+    write_word(0x0, 0x0, 0x0, 0x00f0);
 }
 
 char ascii(char s) {
@@ -347,11 +473,12 @@ char ascii(char s) {
   if(s > 0x7E) return '.';
   return s;
 }
+
 void hexdump(void *d, uint32_t len) {
   unsigned char *data;
   int i, off;
   data = (unsigned char*)d;
-  for (off=0; off<len; off += 16) {
+  for (off=0; off<=len; off += 16) {
     hex32s(off);
     for(i=0; i<16; i++)
       if((i+off)>=len) print("   ");
@@ -369,7 +496,7 @@ static void dump() {
     uint16_t block, page, i;
     unsigned int bytesWritten = 0;
     uint16_t data[64*256];
-    char file[] = "DUMP.BIN";
+
     SDFatFS_Handle sdfatfsHandle;
     FIL fil;
 
@@ -394,16 +521,18 @@ static void dump() {
 
             init_pins();
             do_reset();
+            led_on(BLUE_LED);
             for(block = 0; block < 0x40; block++) {
                 print("\rDump block "); hex8s(block);
                 for (short quarter = 0; quarter < 4; quarter++) { // 16KW per quarter
                     for(page = 0; page < 0x40; page++) {
-                        for(i = 0; i<0xff;i++) data[(page<<8)|i] = read_word(block, (quarter<<6)|page, i);
+                        for(i = 0; i<=0x100;i++) data[(page<<8)|i] = read_word(block, (quarter<<6)|page, i);
                     }
                     f_write(&fil, data, 1<<15, &bytesWritten);
                     if (bytesWritten != 1<<15) {
                         print("write error, only "); hex16s(bytesWritten); print(" written\r\n");
                     }
+                    led_toggle(GREEN_LED);
                 }
             }
             f_sync(&fil);
@@ -411,6 +540,84 @@ static void dump() {
         }
         SDFatFS_close(sdfatfsHandle);
         print("DONE\r\n");
+        led_off(BLUE_LED);
+    }
+}
+
+
+static void burn() {
+    uint16_t block, i;
+    uint32_t status;
+    unsigned int bytesRead = 0;
+    uint16_t data[0x2000];
+
+    SDFatFS_Handle sdfatfsHandle;
+    FIL fil;
+
+    sdfatfsHandle = SDFatFS_open(CONFIG_SDFatFS_0, DRIVE_NUM);
+    if (sdfatfsHandle == NULL) {
+        print("Error starting the SD card\n");
+        return;
+    } else {
+        print("sd mounted\r\n");
+        FILINFO fno;
+        if (FR_OK == f_stat(burnfile, &fno)) {
+            print("burnfile found\r\n");
+        } else {
+            print(burnfile); print(" not found on sdcard\r\n");
+            return;
+        }
+        if (!f_open(&fil, burnfile, FA_READ)) {
+
+            init_pins();
+            do_reset();
+            led_on(RED_LED);
+            for(block = 0; block < 0x80; block++) { // 128 blocs of 64Kb aka 0x8000 words
+                print("Erase block "); hex32(block<<15);
+                erase_block_29w(block<<15);
+                print("Burn block "); hex8(block);
+
+
+                for (short quarter = 0; quarter < 4; quarter++) { // 8KW per quarter
+                    f_read(&fil, data, 1<<14, &bytesRead); // so read 16Kb
+                    if (bytesRead != 1<<14) {
+                        print("Read error, only "); hex16s(bytesRead); print("read\r\n");
+                    }
+                    for (i = 0; i < 0x2000; i+=2 ) { // 8KW
+                        uint16_t d1 = data[i];
+                        uint16_t d2 = data[i+1];
+                        uint32_t addr = block*4*0x2000 + quarter*0x2000 + i;
+                        write_word_29w((addr>>16)&0xff, (addr>>8)&0xff, addr&0xff, d1, d2);
+                        //if (status != 0) {
+                        //    print("write status: "); hex32(status);
+                        //}
+                        //if (addr >= 0x8000 && addr < 0x8100) {
+                        //    print("A "); hex32s(addr); hex16s(d1); hex16(d2);
+                        //}
+                    }
+                    /* for(page = 0; page < 0x40; page++) {
+                        for(i = 0; i<=0x100;i+=2) {
+                            print("P ");
+                            hex32s(block*4*0x40*0x100 + quarter*0x40*0x100 + page*0x100 + i);
+                            hex16s((page<<8)|i);
+                            hex16s((page<<8)|(i+1));
+                            hex16s(data[(page<<8)|i]);
+                            hex16(data[(page<<8)|(i+1)]);
+                            //data[(page<<8)|i] = read_word(block, (quarter<<6)|page, i);
+                        }
+                    }*/
+
+                    led_toggle(GREEN_LED);
+                }
+            }
+
+            f_close(&fil);
+        } else {
+            print("fopen failed\r\n");
+        }
+        SDFatFS_close(sdfatfsHandle);
+        print("DONE\r\n");
+        led_off(RED_LED);
     }
 }
 
@@ -419,7 +626,7 @@ static void read_cfi() {
     uint8_t data[0x8*0x10];
     init_pins();
     do_reset();
-    write_word(0x0, 0x0, 0x55, 0x0, 0x98);
+    write_word(0x0, 0x0, 0x55, 0x0098);
     for(i=0x0; i< 0x08; i++) {
         for(j = 0x0; j < 0x10; j++) {
             data[i*0x10+j] = (uint8_t)read_word(0,0, i*0x10+j) & 0xff;
@@ -433,7 +640,7 @@ static void read_cfi() {
 void sneek_a(void) {
     uint32_t a;
 
-    while (1) {
+    while (a != 0xffffffff) {
         print("Entre XXXXXX address: ");
         a = read_hex(6); print("\r\n");
         hex16(read_word((a >> 16)&0xff, (a>>8)&0xff, a&0xff));
@@ -470,7 +677,7 @@ static void check_content(char *name, uint32_t addr, uint32_t len) {
 
     if (!f_open(&fp,name, FA_READ)) {
         if (!f_lseek(&fp, addr)) {
-            if (!f_read(&fp, data, len, &dataread)) {
+            if (!f_read(&fp, data, len, (UINT*)&dataread)) {
                 hexdump(data, len);
             }
         }
@@ -480,12 +687,23 @@ static void check_content(char *name, uint32_t addr, uint32_t len) {
     SDFatFS_close(sdfatfsHandle);
 }
 
+
 static void menu() {
     print("Dumper Menu\r\n");
     print("<c> CFI\r\n");
-    print("<d> Dump\r\n");
-    print("<b> Burn\r\n");
+    print("<a> sneek at an address\r\n");
+    print("<w> peek flash address\r\n");
+    print("<d> Dump to ["); print(file); print("]\r\n");
+    print("<b> Burn from ["); print(burnfile); print("]\r\n");
     print("<B> blink\r\n");
+    print("<D> toggle debug mode\r\n");
+    print("<p> show ports status\r\n");
+    print("<i> read an hex value\r\n");
+    print("<t> test various things\r\n");
+    print("<l> DIR list sdcard\r\n");
+    print("<x> check content in the saved file\r\n");
+    print("<X> reset flash\r\n");
+    print("<q> quest\r\n");
     print(debug?"DBG":"");
 }
 
@@ -550,6 +768,7 @@ void *mainThread(void *arg0)
     SDFatFS_init();
     uart_init();
     init_pins();
+    init_leds();
 
     //char status;
     char cmd=0;
@@ -560,6 +779,9 @@ void *mainThread(void *arg0)
         switch(cmd) {
         case 'c':
             read_cfi();
+            break;
+        case 'b':
+            burn();
             break;
         case 'a':
             sneek_a();
@@ -598,11 +820,19 @@ void *mainThread(void *arg0)
         case 'x':
             check_content("DUMP.BIN", 0x0, 0);
             break;
+        case 'X':
+            do_reset();
+            break;
         case 'w':
             read_a_spot();
             break;
+        case 'F':
+            print("Erase full chip, should take 80s\r\n");
+            erase_chip_29w();
+            break;
         case 'q':
             print("QUEST\r\n");
+            print(entry83("enter a filename: "));
             break;
         case '?':
             menu();
@@ -678,7 +908,7 @@ void write_cfi(char *filename, void *data, uint32_t len) {
         print("mounted\r\n");
     }
     printDrive(STR(DRIVE_NUM), &(dst.obj.fs));
-    scan_files("0:/");
+    //scan_files("0:/");
 
     if (FR_OK == f_open(&src, filename, FA_CREATE_NEW|FA_READ|FA_WRITE)) {
         f_write(&src, data, len, &bytesWritten);
@@ -690,26 +920,6 @@ void write_cfi(char *filename, void *data, uint32_t len) {
     SDFatFS_close(sdfatfsHandle);
 
 
-    /* Configure the LED pin */
-//    GPIO_s etConfig(CONFIG_GPIO_LED_0, GPIO_CFG_OUT_STD | GPIO_CFG_OUT_LOW);
-
-
-    /* Turn on user LED */
-//    GPIO_write(CONFIG_GPIO_LED_0, CONFIG_GPIO_LED_ON);
-
-//    Display_printf(display, 0, 0, "Starting the FatSD Raw example\n");
-//    Display_printf(display, 0, 0,        "This example requires a FAT filesystem on the SD card.\n");
-//    Display_printf(display, 0, 0,        "You will get errors if your SD card is not formatted with a filesystem.\n");
-
-    /* Mount and register the SD Card */
-//    sdfatfsHandle = SDFatFS_open(CONFIG_SDFatFS_0, DRIVE_NUM);
-//    if (sdfatfsHandle == NULL) {
-//        Display_printf(display, 0, 0, "Error starting the SD card\n");
-//        while (1);
-//    }
-//    else {
-//       Display_printf(display, 0, 0, "Drive %u is mounted\n", DRIVE_NUM);
-//    }
 
 //    printDrive(STR(DRIVE_NUM), &(dst.obj.fs));
 
