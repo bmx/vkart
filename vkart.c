@@ -136,8 +136,6 @@ static void uart_send(uint16_t x) {
     EUSCI_A0->TXBUF = x;
 }
 
-
-
 static void led_on(uint8_t led){
     P2->OUT |= led;
 }
@@ -474,12 +472,12 @@ char ascii(char s) {
   return s;
 }
 
-void hexdump(void *d, uint32_t len) {
+void hexdump(void *d, uint32_t len, uint32_t base) {
   unsigned char *data;
   int i, off;
   data = (unsigned char*)d;
-  for (off=0; off<=len; off += 16) {
-    hex32s(off);
+  for (off=0; off<len; off += 16) {
+    hex32s(base+off);
     for(i=0; i<16; i++)
       if((i+off)>=len) print("   ");
       else hex8s(data[off+i]);
@@ -547,7 +545,7 @@ static void dump() {
 
 static void burn() {
     uint16_t block, i;
-    uint32_t status;
+    //uint32_t status;
     unsigned int bytesRead = 0;
     uint16_t data[0x2000];
 
@@ -637,11 +635,37 @@ static void read_cfi() {
     write_cfi("CFI.BIN", (void *)data, 0x8*0x10);
 }
 
+void display_page(uint32_t base) {
+    uint16_t data[0xff];
+    for(uint32_t a = 0; a < 0x100; a++) {
+        // read ff words
+        uint32_t addr = base + a;
+        data[a] = read_word((addr >> 16)&0xff, (addr>>8)&0xff, addr&0xff);
+    }
+    print("--------v-----------------------------------------------------------------\r\n");
+    hexdump(data, 0x100, base);
+}
+
+void explorer() {
+    uint32_t base_address = 0x8000;
+    char key;
+
+    while (1) {
+        key = uart_recv();
+        if (key == 'n' && (base_address < 0xffff00)) base_address+=0x100;
+        if (key == 'p' && (base_address > 0xff)) base_address-=0x100;
+        if (key == 'a') base_address=read_hex(6);
+        if (key == 'q') break;
+        print("\r");
+        display_page(base_address&0xffffff);
+    }
+}
+
 void sneek_a(void) {
     uint32_t a;
 
     while (a != 0xffffffff) {
-        print("Entre XXXXXX address: ");
+        print("Enter XXXXXX address: ");
         a = read_hex(6); print("\r\n");
         hex16(read_word((a >> 16)&0xff, (a>>8)&0xff, a&0xff));
 
@@ -678,7 +702,7 @@ static void check_content(char *name, uint32_t addr, uint32_t len) {
     if (!f_open(&fp,name, FA_READ)) {
         if (!f_lseek(&fp, addr)) {
             if (!f_read(&fp, data, len, (UINT*)&dataread)) {
-                hexdump(data, len);
+                hexdump(data, len,addr);
             }
         }
         f_close(&fp);
@@ -689,10 +713,11 @@ static void check_content(char *name, uint32_t addr, uint32_t len) {
 
 
 static void menu() {
-    print("Dumper Menu\r\n");
+    print("V.Kart Menu\r\n");
     print("<c> CFI\r\n");
     print("<a> sneek at an address\r\n");
     print("<w> peek flash address\r\n");
+    print("<e> Explore flash\r\n");
     print("<d> Dump to ["); print(file); print("]\r\n");
     print("<b> Burn from ["); print(burnfile); print("]\r\n");
     print("<B> blink\r\n");
@@ -717,6 +742,7 @@ void printDrive(const char *driveNumber, FATFS **fatfs)
     print("Reading disk information...");
 
     fresult = f_getfree(driveNumber, &freeClusterCount, fatfs);
+    hex32(fresult);
     if (fresult) {
         print("Error getting the free cluster count from the FatFs object");
         while (1);
@@ -792,6 +818,9 @@ void *mainThread(void *arg0)
         case 'D':
             debug ^= 1;
             print(debug?"debug on\r\n":"debug off\r\n");
+            break;
+        case 'e':
+            explorer();
             break;
         case 'p':
             port_status();

@@ -1,2 +1,12 @@
 /Debug/
-/Release/
+/Release/*.o
+/Release/*.d
+/Release/*.out
+/Release/*.map
+Release/config.mk
+Release/*.d_raw
+.settings
+.project
+.cproject
+.ccsproject
+.*.sw?

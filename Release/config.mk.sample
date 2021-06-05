@@ -1,0 +1,3 @@
+CG_TOOL_ROOT := <pathto gcc arm none eabi>
+SL_TOOL_ROOT := <pathto TI Simplelink SDK>
+CC = $(CG_TOOL_ROOT)/bin/gcc
