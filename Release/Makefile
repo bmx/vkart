@@ -19,7 +19,7 @@ ORDERED_OBJS += \
 	$(GEN_CMDS__FLAG) \
 	-l:"third_party/spiffs/lib/gcc/m4f/spiffs.a" \
 	-l:"ti/drivers/lib/drivers_msp432p401x.am4fg" \
-	-l:"fatfs.a" \
+        -l:"third_party/fatfs/lib/gcc/m4f/fatfs.a" \
 	-l:"lib/nortos_msp432p401x.am4fg" \
 	-l:"ti/devices/msp432p4xx/driverlib/gcc/msp432p4xx_driverlib.a" \
 	-lgcc \
@@ -35,31 +35,8 @@ RMDIR := rm -rf
 # All Target
 all: vkart.out
 
-FFOBJS = diskio.o \
-	ff.o \
-	ffsystem.o \
-	ffunicode.o \
-	ramdisk.o
 
 ARFLAGS = -r
-
-fatfs.a: $(FFOBJS) ../fatfs/ffconf.h
-	@ echo "# Archiving $@"
-	@ $(AR) $(ARFLAGS) $@ $^
-
-
-ff.o: ../fatfs/ff.c
-	$(CC) -c $(COPT) -I"$(SL_TOOL_ROOT)/source" -I"$(SL_TOOL_ROOT)/source/third_party/CMSIS/Include" $(RTOS) -I"$(CG_TOOL_ROOT)/arm-none-eabi/include/newlib-nano" -I"$(CG_TOOL_ROOT)/arm-none-eabi/include" -ffunction-sections -fdata-sections -MMD -MP -MF"$(basename $(<F)).d_raw" -MT"$(@)" -std=c99 $(GEN_OPTS__FLAG) -o"$@" "$(shell echo $<)"
-diskio.o: ../fatfs/diskio.c
-	$(CC) -c $(COPT) -I"$(SL_TOOL_ROOT)/source" -I"$(SL_TOOL_ROOT)/source/third_party/CMSIS/Include" $(RTOS) -I"$(CG_TOOL_ROOT)/arm-none-eabi/include/newlib-nano" -I"$(CG_TOOL_ROOT)/arm-none-eabi/include" -ffunction-sections -fdata-sections -MMD -MP -MF"$(basename $(<F)).d_raw" -MT"$(@)" -std=c99 $(GEN_OPTS__FLAG) -o"$@" "$(shell echo $<)"
-ffsystem.o: ../fatfs/ffsystem.c
-	$(CC) -c $(COPT) -I"$(SL_TOOL_ROOT)/source" -I"$(SL_TOOL_ROOT)/source/third_party/CMSIS/Include" $(RTOS) -I"$(CG_TOOL_ROOT)/arm-none-eabi/include/newlib-nano" -I"$(CG_TOOL_ROOT)/arm-none-eabi/include" -ffunction-sections -fdata-sections -MMD -MP -MF"$(basename $(<F)).d_raw" -MT"$(@)" -std=c99 $(GEN_OPTS__FLAG) -o"$@" "$(shell echo $<)"
-ffunicode.o: ../fatfs/ffunicode.c
-	$(CC) -c $(COPT) -I"$(SL_TOOL_ROOT)/source" -I"$(SL_TOOL_ROOT)/source/third_party/CMSIS/Include" $(RTOS) -I"$(CG_TOOL_ROOT)/arm-none-eabi/include/newlib-nano" -I"$(CG_TOOL_ROOT)/arm-none-eabi/include" -ffunction-sections -fdata-sections -MMD -MP -MF"$(basename $(<F)).d_raw" -MT"$(@)" -std=c99 $(GEN_OPTS__FLAG) -o"$@" "$(shell echo $<)"
-ramdisk.o: ../fatfs/ramdisk.c
-	$(CC) -c $(COPT) -I"$(SL_TOOL_ROOT)/source" -I"$(SL_TOOL_ROOT)/source/third_party/CMSIS/Include" $(RTOS) -I"$(CG_TOOL_ROOT)/arm-none-eabi/include/newlib-nano" -I"$(CG_TOOL_ROOT)/arm-none-eabi/include" -ffunction-sections -fdata-sections -MMD -MP -MF"$(basename $(<F)).d_raw" -MT"$(@)" -std=c99 $(GEN_OPTS__FLAG) -o"$@" "$(shell echo $<)"
-
-
 
 startup_msp432p401r_ccs.o: startup_msp432p401r_ccs.c
 	$(CC) -c $(COPT) -I"$(SL_TOOL_ROOT)/source" -I"$(SL_TOOL_ROOT)/source/third_party/CMSIS/Include" $(RTOS) -I"$(CG_TOOL_ROOT)/arm-none-eabi/include/newlib-nano" -I"$(CG_TOOL_ROOT)/arm-none-eabi/include" -ffunction-sections -fdata-sections -MMD -MP -MF"$(basename $(<F)).d_raw" -MT"$(@)" -std=c99 $(GEN_OPTS__FLAG) -o"$@" "$(shell echo $<)"
@@ -105,7 +82,7 @@ BIN_OUTPUTS__QUOTED += "vkart.hex"
 
 
 # Tool invocations
-vkart.out: $(OBJS) fatfs.a
+vkart.out: $(OBJS) 
 	@echo 'Building target: "$@"'
 	@echo 'Invoking: GNU Linker'
 	"$(CG_TOOL_ROOT)/bin/arm-none-eabi-gcc-7.2.1" -ffunction-sections -fdata-sections $(COPT) -Wl,-Map,"vkart.map" --entry resetISR -nostartfiles -static -Wl,--gc-sections -L. -L"$(SL_TOOL_ROOT)/source" -L"$(SL_TOOL_ROOT)/kernel/nortos" -L"$(CG_TOOL_ROOT)/arm-none-eabi/lib/thumb/v7e-m/fpv4-sp/hard" $(COPT) --specs=nano.specs -o"vkart.out" $(ORDERED_OBJS)
@@ -124,7 +101,7 @@ clean:
 	-$(RM) vkart.out
 	-$(RM) "ti_drivers_config.o" "vkart.o" "main.o" "printf.o"
 	-$(RM) "ti_drivers_config.d" "vkart.d" "main.d" "printf.d"
-	-$(RM) $(FFOBJS) fatfs.a
+	-$(RM) $(FFOBJS) 
 	-@echo 'Finished clean'
 	-@echo ' '
 
