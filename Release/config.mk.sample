@@ -1,3 +1,9 @@
+# This should point for example to the ccs installed gcc
 CG_TOOL_ROOT := <pathto gcc arm none eabi>
+# Simplelink is provided by css as a downloaded sdk
 SL_TOOL_ROOT := <pathto TI Simplelink SDK>
+
 CC = $(CG_TOOL_ROOT)/bin/gcc
+
+# DSLite should be included in uniflash and ccs at least
+DSLITE := <pathto DSLite binary>

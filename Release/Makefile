@@ -96,6 +96,9 @@ vkart.hex: $(EXE_OUTPUTS)
 	@echo 'Finished building secondary target: "$@"'
 	@echo ' '
 
+flash: vkart.out
+	$(DSLITE) flash -c ../targetConfigs/MSP432P401R.ccxml -l ../targetConfigs/settings -s VerifyAfterProgramLoad="No verification" -e -f -v vkart.out
+
 # Other Targets
 clean:
 	-$(RM) vkart.out

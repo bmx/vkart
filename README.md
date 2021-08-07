@@ -10,6 +10,7 @@ CG_TOOL_ROOT := <pathto>/ccs1031/ccs/tools/compiler/gcc-arm-none-eabi-7-2017-q4-
 SL_TOOL_ROOT := <pathto>/simplelink_msp432p4_sdk_3_40_01_02
 CC = $(CG_TOOL_ROOT)/bin/arm-none-eabi-gcc-7.2.1
 AR = $(CG_TOOL_ROOT)/bin/arm-none-eabi-ar
+DSLITE := <pathto>DSLite
 ```
 
 go to `Release` and type `make`
@@ -18,10 +19,12 @@ it will produce a `vkart.out` elf file
 
 # to flash the firmware
 
-Use uniflash gui to create a command line package
-Once created and unzipped, edit `uniflash/dslite.sh` to get rid of the hardcoded path and use `$1` instead.
+Locate DSLite on your system, it should come with most of the TI tools.
+(Uniflash, CCS, ...).
 
-then, use `uniflash/dslite.sh <pathto>/vkart.out`
+Then update DSLITE in config.mk to reflect its path
+
+To flash the board, go to `Release` and type `make flash`
 
 # to access the tool
 
