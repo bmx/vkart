@@ -1211,6 +1211,46 @@ void printDrive(const char *driveNumber, FATFS **fatfs)
         printf("\r\n");
     }
 }
+enum SEGS { A_HI, A_MID, A_LO, D_HI, D_LO };
+void bit_twidling_menu() {
+    uint8_t *seg, high, mid, low, data_hi, data_low, cmd=0;
+    while (cmd != 'q') {
+        printf("%08b %08b %08b  %08b %08b\r\n", high, mid, low, data_hi, data_low);
+        //printf("%s ", 
+        cmd = uart_recv();
+        switch(cmd) {
+            case '1':
+                *seg ^= 1; break;
+            case '2':
+                *seg ^= 1<<1; break;
+            case '3':
+                *seg ^= 1<<2; break;
+            case '4':
+                *seg ^= 1<<3; break;
+            case '5':
+                *seg ^= 1<<4; break;
+            case '6':
+                *seg ^= 1<<5; break;
+            case '7':
+                *seg ^= 1<<6; break;
+            case '8':
+                *seg ^= 1<<7; break;
+        
+            case 'a':
+                seg = &high; break;
+            case 's':
+                seg = &mid; break;
+            case 'd':
+                seg = &low; break;
+
+            case 'f':
+                seg = &data_hi; break;
+            case 'g':
+                seg = &data_low; break;
+        }
+    }
+    printf("Back to main menu\r\n");
+}
 
 /*
  *  ======== mainThread ========
@@ -1292,11 +1332,11 @@ void *mainThread(void *arg0)
         case 'd':
             dump();
             break;
-        case '=':
+        /*case '=':
             write_word_29w(0x0, 0x0, 0x0, 0xf00f, 0x0ff0);
             write_word_mx(0x0,0x0,0x10, 0xabcd);
             printf("written\r\n");
-            break;
+            break;*/
         case 'D':
             debug ^= 1;
             printf("%s",debug?"debug on\r\n":"debug off\r\n");
@@ -1361,6 +1401,25 @@ void *mainThread(void *arg0)
             break;
         case '?':
             menu();
+            break;
+        case '_':
+            printf("RW false\r\n");
+            set_rw(false);
+            break;
+        case '+':
+            printf("RW true\r\n");
+            set_rw(true);
+            break;
+        case '-':
+            printf("CE false\r\n");
+            set_ce(false);
+            break;
+        case '=':
+            printf("CE true\r\n");
+            set_ce(true);
+            break;
+        case '*':
+            bit_twidling_menu();
             break;
         case 0x81:
             printf2("81 received\r\n");
